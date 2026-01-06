@@ -158,14 +158,17 @@ else:
             
             # NO FORM HERE -> Allows Live Slider Updates
             c1, c2, c3 = st.columns(3)
-            weight = c1.number_input("Weight (kg)", 40.0, 150.0, 75.0)
-            rhr = c2.number_input("Resting HR", 40, 120, 65)
-            pulse = c3.number_input("Pulse Rate (Current)", 40, 150, 70)
+            # Widened Ranges: Weight 20-300, HR 30-220
+            weight = c1.number_input("Weight (kg)", 20.0, 300.0, 75.0)
+            rhr = c2.number_input("Resting HR", 30, 200, 65)
+            pulse = c3.number_input("Pulse Rate (Current)", 30, 220, 70)
 
             c4, c5, c6 = st.columns(3)
-            sys = c4.number_input("Systolic BP", 90, 200, 120)
-            dia = c5.number_input("Diastolic BP", 50, 130, 80)
-            resp = c6.number_input("Resp. Rate", 10, 40, 16)
+            # Widened Ranges: BP 50-300 (Sys) / 30-180 (Dia)
+            sys = c4.number_input("Systolic BP", 50, 300, 120)
+            dia = c5.number_input("Diastolic BP", 30, 180, 80)
+            # Widened Range: Resp 5-60
+            resp = c6.number_input("Resp. Rate", 5, 60, 16)
 
             st.markdown("**Pre-existing Conditions:**")
             cc1, cc2 = st.columns(2)
