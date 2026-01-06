@@ -80,7 +80,13 @@ def submit_feedback(record_id: int, feedback: WorkoutFeedback, db: Session = Dep
     
     record.borg_rating = feedback.borg_rating
     record.mood = feedback.mood
-    record.symptoms = ",".join(feedback.symptoms) if feedback.symptoms else "None"
+    # Convert list to string
+    symptoms_str = ",".join(feedback.symptoms) if feedback.symptoms else "None"
+    record.symptoms = symptoms_str
+    
+    # CRITICAL FIX: Flag urgency if dangerous symptoms are reported
+    if "Chest Pain" in symptoms_str or "Dizziness" in symptoms_str:
+        record.is_urgent = True
     
     db.add(record)
     db.commit()

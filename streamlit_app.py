@@ -11,13 +11,13 @@ if "plan_data" not in st.session_state: st.session_state["plan_data"] = None
 
 # --- BORG SCALE DESCRIPTIONS ---
 BORG_DESC = {
-    6: "No exertion at all (Sitting, lying down)",
-    7: "Extremely light (Very relaxed walking)",
-    8: "Extremely light (Almost effortless)",
-    9: "Very light (Slow walking)",
-    10: "Very light (Easy activity)",
-    11: "Light (Comfortable, can talk easily)",
-    12: "Light (Slightly increased breathing)",
+    6: "No exertion at all",
+    7: "Extremely light",
+    8: "Extremely light",
+    9: "Very light",
+    10: "Very light",
+    11: "Light",
+    12: "Light",
     13: "Somewhat hard (Noticeable effort, talking harder)",
     14: "Somewhat hard (Breathing heavier, focused)",
     15: "Hard (Difficult to talk continuously)",
@@ -30,13 +30,21 @@ BORG_DESC = {
 
 # --- AUTH FUNCTIONS ---
 def login(username):
+    user_data = None
+    # 1. Try to get data
     try:
         res = requests.get(f"{API_URL}/patient/login/{username}")
         if res.status_code == 200:
-            st.session_state["user"] = res.json()
-            st.rerun()
-        else: st.error("User not found.")
-    except: st.error("Server Offline")
+            user_data = res.json()
+        else:
+            st.error("User not found.")
+    except Exception as e:
+        st.error(f"Server Connection Error: {e}")
+
+    # 2. If successful, save and rerun (OUTSIDE the try/except)
+    if user_data:
+        st.session_state["user"] = user_data
+        st.rerun()
 
 def logout():
     st.session_state["user"] = None
@@ -54,8 +62,14 @@ if not st.session_state["user"]:
         auth_tab1, auth_tab2 = st.tabs(["🔑 Login", "📝 Register"])
         
         with auth_tab1:
-            user_input = st.text_input("Username", key="login_u")
-            if st.button("Login"): login(user_input)
+            with st.form("login_form"):
+                user_input = st.text_input("Username", key="login_u")
+                # Using a form submit button prevents "double click" issues
+                if st.form_submit_button("Login"):
+                    if user_input:
+                        login(user_input)
+                    else:
+                        st.warning("Please enter a username.")
 
         with auth_tab2:
             new_u = st.text_input("Username", key="reg_u")
@@ -81,18 +95,41 @@ if not st.session_state["user"]:
 else:
     user = st.session_state["user"]
     
+    # --- SIDEBAR (Profile & Logout) ---
     with st.sidebar:
         st.header(f"👤 {user['full_name']}")
         st.caption(f"Role: {user['role'].upper()}")
+        
+        # MOVED PROFILE HERE
+        if user["role"] == "patient":
+            st.divider()
+            st.subheader("Edit Profile")
+            with st.form("sidebar_profile"):
+                p_age = st.number_input("Age", 18, 100, user.get('age', 30))
+                p_sex = st.selectbox("Gender", ["M", "F"], index=0 if user.get('gender')=='M' else 1)
+                
+                if st.form_submit_button("Update Profile"):
+                    res = requests.patch(f"{API_URL}/patient/profile/{user['id']}", json={"age": p_age, "gender": p_sex})
+                    if res.status_code == 200:
+                        st.session_state["user"]["age"] = p_age
+                        st.session_state["user"]["gender"] = p_sex
+                        st.success("Updated!")
+                        st.rerun()
+        
+        st.divider()
         if st.button("Logout"): logout()
 
     # ----------------------------------------------------
     # 🏃 PATIENT VIEW
     # ----------------------------------------------------
     if user["role"] == "patient":
-        st.title("My Health Dashboard")
+        # REFRESH BUTTON HEADER
+        col_t, col_r = st.columns([6,1])
+        with col_t: st.title("My Health Dashboard")
+        with col_r: 
+            if st.button("🔄 Refresh"): st.rerun()
 
-        # --- 1. GLOBAL STATS (Moved to top for visibility) ---
+        # --- GLOBAL STATS ---
         try:
             h_res = requests.get(f"{API_URL}/patient/history/{user['id']}")
             hist_df = pd.DataFrame()
@@ -100,7 +137,6 @@ else:
                 h_data = h_res.json()
                 if h_data:
                     hist_df = pd.DataFrame(h_data)
-                    # Metrics Calculation
                     hist_df['date'] = pd.to_datetime(hist_df['timestamp']).dt.date
                     streak_days = len(hist_df['date'].unique())
                     total_cals = int(hist_df['calories_burned'].sum())
@@ -113,215 +149,193 @@ else:
         except:
             st.error("Could not load stats.")
         
-        tab_profile, tab_predict, tab_hist = st.tabs(["👤 My Profile", "💪 New Session", "📊 History & Remarks"])
+        # --- TABS (Removed Profile from here) ---
+        tab_predict, tab_hist = st.tabs(["💪 New Session", "📊 History & Remarks"])
         
-        # --- TAB 1: PROFILE ---
-        with tab_profile:
-            st.subheader("Edit Personal Details")
-            with st.form("profile_update"):
-                c1, c2 = st.columns(2)
-                p_age = c1.number_input("Age", 18, 100, user.get('age', 30))
-                p_sex = c2.selectbox("Gender", ["M", "F"], index=0 if user.get('gender')=='M' else 1)
-                
-                if st.form_submit_button("Update Profile"):
-                    res = requests.patch(f"{API_URL}/patient/profile/{user['id']}", json={"age": p_age, "gender": p_sex})
-                    if res.status_code == 200:
-                        st.session_state["user"]["age"] = p_age
-                        st.session_state["user"]["gender"] = p_sex
-                        st.success("Profile Updated!")
-                        st.rerun()
-
-        # --- TAB 2: PREDICTION ---
+        # --- TAB 1: PREDICTION (Live Borg) ---
         with tab_predict:
             st.subheader("Pre-Workout Vitals")
-            with st.form("predict_form"):
-                c1, c2, c3 = st.columns(3)
-                weight = c1.number_input("Weight (kg)", 40.0, 150.0, 75.0)
-                rhr = c2.number_input("Resting HR", 40, 120, 65)
-                pulse = c3.number_input("Pulse Rate (Current)", 40, 150, 70)
+            
+            # NO FORM HERE -> Allows Live Slider Updates
+            c1, c2, c3 = st.columns(3)
+            weight = c1.number_input("Weight (kg)", 40.0, 150.0, 75.0)
+            rhr = c2.number_input("Resting HR", 40, 120, 65)
+            pulse = c3.number_input("Pulse Rate (Current)", 40, 150, 70)
 
-                c4, c5, c6 = st.columns(3)
-                sys = c4.number_input("Systolic BP", 90, 200, 120)
-                dia = c5.number_input("Diastolic BP", 50, 130, 80)
-                resp = c6.number_input("Resp. Rate", 10, 40, 16)
+            c4, c5, c6 = st.columns(3)
+            sys = c4.number_input("Systolic BP", 90, 200, 120)
+            dia = c5.number_input("Diastolic BP", 50, 130, 80)
+            resp = c6.number_input("Resp. Rate", 10, 40, 16)
 
-                st.markdown("**Pre-existing Conditions:**")
-                cc1, cc2 = st.columns(2)
-                has_htn = cc1.checkbox("Hypertension (HTN)")
-                has_dm = cc2.checkbox("Diabetes (DM)")
-                
-                st.divider()
-                st.markdown("**How do you feel right now? (Borg Scale)**")
-                borg_val = st.slider("", 6, 20, 6)
-                st.info(f"**Level {borg_val}:** {BORG_DESC[borg_val]}")
-                
-                if st.form_submit_button("Generate Plan"):
-                    payload = {
-                        "weight": weight, "resting_hr": rhr, 
-                        "bp_systolic": sys, "bp_diastolic": dia,
-                        "pulse_rate_before": pulse, "respiratory_rate_before": resp,
-                        "borg_rating_before": borg_val,
-                        "has_htn": has_htn, "has_dm": has_dm
-                    }
-                    res = requests.post(f"{API_URL}/patient/predict/{user['id']}", json=payload)
-                    if res.status_code == 200: st.session_state["plan_data"] = res.json()
-                    else: st.error(res.text)
+            st.markdown("**Pre-existing Conditions:**")
+            cc1, cc2 = st.columns(2)
+            has_htn = cc1.checkbox("Hypertension (HTN)")
+            has_dm = cc2.checkbox("Diabetes (DM)")
+            
+            st.divider()
+            st.markdown("**How do you feel right now? (Borg Scale)**")
+            
+            # Live Slider
+            borg_val = st.slider("Fatigue Level", 6, 20, 6)
+            st.info(f"**Level {borg_val}:** {BORG_DESC[borg_val]}")
+            
+            if st.button("Generate Plan", type="primary"):
+                payload = {
+                    "weight": weight, "resting_hr": rhr, 
+                    "bp_systolic": sys, "bp_diastolic": dia,
+                    "pulse_rate_before": pulse, "respiratory_rate_before": resp,
+                    "borg_rating_before": borg_val,
+                    "has_htn": has_htn, "has_dm": has_dm
+                }
+                res = requests.post(f"{API_URL}/patient/predict/{user['id']}", json=payload)
+                if res.status_code == 200: st.session_state["plan_data"] = res.json()
+                else: st.error(res.text)
 
+            # SHOW PLAN & VIDEO (Outside Form)
             if st.session_state["plan_data"]:
                 data = st.session_state["plan_data"]
                 st.divider()
-                if data["is_urgent"]: st.error("⚠️ HIGH RISK DETECTED.")
+                st.subheader("Your AI Prescription")
+                if data["is_urgent"]: st.error("⚠️ HIGH RISK DETECTED - Intensity Reduced")
                 else: st.success(f"✅ Target: {data['predicted_intensity']} Intensity")
+                
+                # RESTORED VIDEO HERE
                 st.video(data["youtube_link"])
                 
+                st.divider()
                 st.subheader("Post-Workout Check-in")
-                with st.form("feedback_form"):
-                    fb_borg = st.slider("Exertion Level (After)", 6, 20, 13)
-                    fb_mood = st.select_slider("Mood", ["Happy", "Sad", "Tired", "Energetic"])
-                    if st.form_submit_button("Save Log"):
-                        requests.patch(f"{API_URL}/patient/feedback/{data['id']}", 
-                                     json={"borg_rating": fb_borg, "mood": fb_mood, "symptoms": []})
-                        st.success("Logged!")
-                        st.session_state["plan_data"] = None
+                st.caption("Fill this AFTER you finish.")
+                
+                # --- UPDATED: Live Slider for Post-Workout ---
+                fb_borg = st.slider("Exertion Level (After Workout)", 6, 20, 13)
+                st.info(f"**Level {fb_borg}:** {BORG_DESC[fb_borg]}")
+                
+                fb_mood = st.select_slider("Mood", ["Happy", "Sad", "Tired", "Energetic"])
+                
+                if st.button("Save Log", type="primary"):
+                    requests.patch(f"{API_URL}/patient/feedback/{data['id']}", 
+                                 json={"borg_rating": fb_borg, "mood": fb_mood, "symptoms": []})
+                    st.success("Logged!")
+                    st.session_state["plan_data"] = None
+                    st.rerun()
 
-        # --- TAB 3: HISTORY & REMARKS (Updated) ---
+        # --- TAB 2: HISTORY ---
         with tab_hist:
             if not hist_df.empty:
-                # Ensure doctor_note column exists
-                if "doctor_note" not in hist_df.columns:
-                    hist_df["doctor_note"] = "No remarks"
+                if "doctor_note" not in hist_df.columns: hist_df["doctor_note"] = "No remarks"
                 
-                st.markdown("### Your Activity Log & Clinical Feedback")
-                # Show key columns including Doctor's Note
+                st.markdown("### Activity Log")
+                # Show Borg Before and After if available
                 display_cols = ["timestamp", "predicted_intensity", "borg_rating_before", "doctor_note"]
-                final_cols = [c for c in display_cols if c in hist_df.columns]
                 
-                st.dataframe(hist_df[final_cols], use_container_width=True)
+                # Rename for clarity
+                view_df = hist_df.copy()
+                view_df = view_df.rename(columns={
+                    "borg_rating_before": "Fatigue (Pre)",
+                    "borg_rating": "Exertion (Post)"
+                })
+                
+                cols_to_show = ["timestamp", "predicted_intensity", "Fatigue (Pre)", "doctor_note"]
+                if "Exertion (Post)" in view_df.columns: cols_to_show.append("Exertion (Post)")
+                
+                final_cols = [c for c in cols_to_show if c in view_df.columns]
+                st.dataframe(view_df[final_cols], use_container_width=True)
             else:
                 st.info("No records found.")
 
     # ----------------------------------------------------
-    # 👨‍⚕️ DOCTOR VIEW (Username Selector + Detailed View)
+    # 👨‍⚕️ DOCTOR VIEW
     # ----------------------------------------------------
     elif user["role"] == "doctor":
-        st.title("👨‍⚕️ Clinical Command Center")
+        # REFRESH BUTTON HEADER
+        col_t, col_r = st.columns([6,1])
+        with col_t: st.title("👨‍⚕️ Clinical Command Center")
+        with col_r: 
+            if st.button("🔄 Refresh", key="doc_refresh"): st.rerun()
         
         try:
             res = requests.get(f"{API_URL}/doctor/dashboard")
             if res.status_code == 200:
                 all_records = res.json()
                 if not all_records:
-                    st.info("No records found in the system.")
+                    st.info("No records found.")
                 else:
                     df = pd.DataFrame(all_records)
-                    # Ensure columns exist
-                    if "symptoms" not in df.columns: df["symptoms"] = "None"
-                    if "calories_burned" not in df.columns: df["calories_burned"] = 0
-                    if "is_urgent" not in df.columns: df["is_urgent"] = False
-                    if "patient_username" not in df.columns: df["patient_username"] = "Unknown"
+                    # Safe Defaults
+                    for c in ["symptoms", "calories_burned", "is_urgent", "patient_username", "borg_rating", "borg_rating_before"]:
+                        if c not in df.columns: df[c] = None
 
-                    # 1. GLOBAL ALERTS
-                    urgent_cases = df[
-                        (df["is_urgent"] == True) | 
-                        (df["symptoms"].astype(str).str.contains("Chest Pain|Dizziness", na=False))
-                    ]
+                    # 1. ALERT FILTER (Strict Urgency Check)
+                    # Only show if is_urgent is TRUE. If Doctor overrode it (False), it disappears.
+                    urgent_cases = df[df["is_urgent"] == True]
                     
                     if not urgent_cases.empty:
                         st.error(f"⚠️ {len(urgent_cases)} CRITICAL PATIENTS REQUIRE REVIEW")
-                        st.dataframe(urgent_cases[["patient_username", "timestamp", "symptoms", "bp_systolic", "is_urgent"]])
+                        # --- UPDATED: Added 'id' to the view ---
+                        st.dataframe(urgent_cases[["id", "patient_username", "timestamp", "symptoms", "bp_systolic"]])
                     else:
                         st.success("✅ No Critical Alerts Pending")
 
                     st.divider()
 
-                    # 2. PATIENT INSPECTOR (By Username)
+                    # 2. PATIENT INSPECTOR
                     c1, c2 = st.columns([1, 3])
-                    
                     with c1:
                         st.markdown("### 👤 Select Patient")
-                        # Get unique patient Usernames
-                        patient_users = sorted(df["patient_username"].astype(str).unique())
-                        selected_user = st.selectbox("Choose User to Inspect", patient_users)
+                        p_users = sorted(df["patient_username"].astype(str).unique())
+                        selected_user = st.selectbox("Username", p_users)
                     
                     with c2:
                         st.markdown(f"### Patient: **{selected_user}** Overview")
-                        
-                        # Filter data for this specific patient
                         p_df = df[df["patient_username"] == selected_user].copy()
                         p_df["timestamp"] = pd.to_datetime(p_df["timestamp"])
                         p_df = p_df.sort_values("timestamp", ascending=False)
                         
                         # Stats
-                        total_cals = p_df["calories_burned"].sum()
-                        unique_days = len(p_df["timestamp"].dt.date.unique())
-                        avg_borg = p_df["borg_rating_before"].mean() if "borg_rating_before" in p_df else 0
+                        stk = len(p_df["timestamp"].dt.date.unique())
+                        cal = int(p_df["calories_burned"].sum())
                         
-                        m1, m2, m3 = st.columns(3)
-                        m1.metric("🔥 Active Streak", f"{unique_days} Days")
-                        m2.metric("⚡ Total Burn", f"{int(total_cals)} kcal")
-                        m3.metric("📉 Avg Fatigue", f"{avg_borg:.1f}/20")
+                        m1, m2 = st.columns(2)
+                        m1.metric("Streak", f"{stk} Days")
+                        m2.metric("Total Burn", f"{cal} kcal")
                         
-                        st.markdown("#### 📅 Activity History")
+                        st.subheader("Detailed History")
                         
-                        def highlight_risk(row):
-                            if row.get("is_urgent"): return ['background-color: #ffcccc'] * len(row)
-                            return [''] * len(row)
+                        # Rename Borg Columns for Doctor
+                        p_df = p_df.rename(columns={
+                            "borg_rating_before": "Fatigue (Pre)",
+                            "borg_rating": "Exertion (Post)"
+                        })
 
-                        display_cols = ["id", "timestamp", "predicted_intensity", "borg_rating", "mood", "symptoms", "calories_burned"]
-                        final_cols = [c for c in display_cols if c in p_df.columns]
+                        def highlight_risk(row):
+                            return ['background-color: #ffcccc']*len(row) if row.get("is_urgent") else ['']*len(row)
+
+                        # Added Exertion (Post) to view
+                        view_cols = ["id", "timestamp", "predicted_intensity", "Fatigue (Pre)", "Exertion (Post)", "mood", "symptoms"]
+                        final_view = [c for c in view_cols if c in p_df.columns]
                         
-                        st.dataframe(p_df[final_cols].style.apply(highlight_risk, axis=1), use_container_width=True)
+                        st.dataframe(p_df[final_view].style.apply(highlight_risk, axis=1), use_container_width=True)
 
                         st.divider()
 
-                        # 3. CLINICAL ACTIONS
-                        act_tab1, act_tab2 = st.tabs(["📝 Add Clinical Remark", "⚡ Override Intensity"])
+                        # 3. ACTIONS
+                        act1, act2 = st.tabs(["Add Remark", "Override Plan"])
+                        with act1:
+                            rec_id = st.selectbox("Record ID", p_df["id"].tolist(), key="rem_id")
+                            note = st.text_area("Doctor's Note")
+                            if st.button("Save Note"):
+                                requests.post(f"{API_URL}/doctor/remark/{rec_id}", params={"text": note, "user_id": user["id"]})
+                                st.success("Saved!")
                         
-                        # ACTION 1: ADD REMARK
-                        with act_tab1:
-                            st.write("Select a specific record to attach a note.")
-                            target_record = st.selectbox("Select Record ID", p_df["id"].tolist(), key="remark_rec")
-                            remark_text = st.text_area("Clinical Note / Recommendation")
-                            
-                            if st.button("Save Remark"):
-                                try:
-                                    r_res = requests.post(
-                                        f"{API_URL}/doctor/remark/{target_record}",
-                                        params={"text": remark_text, "user_id": user["id"]}
-                                    )
-                                    if r_res.status_code == 200:
-                                        st.success("Note saved to patient record!")
-                                    else:
-                                        st.error("Failed to save note.")
-                                except Exception as e:
-                                    st.error(f"Error: {e}")
-
-                        # ACTION 2: OVERRIDE INTENSITY
-                        with act_tab2:
-                            st.warning("Overriding the AI prescription will automatically adjust Heart Rate Zones.")
-                            
-                            ov_rec_id = st.selectbox("Select Record ID", p_df["id"].tolist(), key="ov_rec")
-                            if not p_df.empty:
-                                current_int = p_df[p_df["id"] == ov_rec_id]["predicted_intensity"].values[0]
-                                st.info(f"Current Intensity: **{current_int}**")
-                            
-                            new_int = st.selectbox("Set New Intensity", ["Low", "Moderate", "High"])
-                            
-                            if st.button("Update Prescription"):
-                                try:
-                                    ov_res = requests.patch(
-                                        f"{API_URL}/doctor/override/{ov_rec_id}",
-                                        params={"new_intensity": new_int}
-                                    )
-                                    if ov_res.status_code == 200:
-                                        st.success(f"Prescription updated to {new_int}")
-                                        st.rerun()
-                                    else:
-                                        st.error("Update failed.")
-                                except Exception as e:
-                                    st.error(f"Error: {e}")
+                        with act2:
+                            ov_id = st.selectbox("Record ID to Edit", p_df["id"].tolist(), key="ov_id")
+                            new_i = st.selectbox("New Intensity", ["Low", "Moderate", "High"])
+                            if st.button("Update"):
+                                requests.patch(f"{API_URL}/doctor/override/{ov_id}", params={"new_intensity": new_i})
+                                st.success("Updated!")
+                                st.rerun()
 
             else:
-                st.error("Could not connect to database.")
+                st.error("Database Error")
         except Exception as e:
             st.error(f"Connection Error: {e}")
