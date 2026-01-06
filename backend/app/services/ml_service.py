@@ -23,20 +23,21 @@ class MLService:
             print(f"⚠️  ML Load Error: {e}")
             self.pipeline = None
 
-    def predict_and_audit(self, age: int, weight: float, rhr: int, bp_sys: int, bp_dia: int,borg_before: int):
+    def predict_and_audit(self, age, gender, weight, rhr, bp_sys, bp_dia, 
+                          pulse_before, resp_before, borg_before, conditions):
         
         # 1. Prepare Data
         input_data = pd.DataFrame([{
             'Age': age,
+            'Gender': gender,
             'Weight (kg)': weight,
             'Resting Heart Rate (BPM)': rhr,
             'BPB_Systolic': bp_sys,
             'BPB_Diastolic': bp_dia,
-            # Placeholders for missing columns
-            'Gender': 'M', 'Pre-existing Conditions': 'HTN', 
-            'Borg Scale Rating (Before)': borg_before, # <--- USE REAL INPUT HERE
-            'Pulse Rate Before': rhr, 
-            'Respiratory Rate Before': 16
+            'Pre-existing Conditions': conditions,
+            'Borg Scale Rating (Before)': borg_before,
+            'Pulse Rate Before': pulse_before,
+            'Respiratory Rate Before': resp_before
         }])
 
         # 2. Get ML Prediction

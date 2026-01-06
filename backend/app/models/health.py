@@ -9,29 +9,31 @@ class HealthRecord(SQLModel, table=True):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # --- Vitals Inputs ---
-    age: int
+    # --- DYNAMIC INPUTS (Session-based) ---
     weight: float
     resting_hr: int
     bp_systolic: int
     bp_diastolic: int
-    borg_rating_before: int = Field(default=6)  # <--- NEW FIELD
     
+    # --- NEW ML FEATURES ---
+    pulse_rate_before: int
+    respiratory_rate_before: int
+    borg_rating_before: int
+    conditions: str # Stores "HTN", "DM", "HTN, DM" or "None"    
     
-    
-    # --- AI Outputs ---
+    # --- AI OUTPUTS ---
     predicted_intensity: str 
     mhr: int
     target_hr_min: int
     target_hr_max: int
     is_urgent: bool = Field(default=False)
-    calories_burned: float = Field(default=0.0)  # NEW: For streaks/stats
+    calories_burned: float = Field(default=0.0)
 
-    # --- Patient Feedback (Post-Workout) ---
-    borg_rating: Optional[int] = Field(default=None) # Scale 6-20
-    mood: Optional[str] = Field(default=None)        # Happy/Sad etc.
-    symptoms: Optional[str] = Field(default=None)    # "Chest Pain", etc.
+    # --- POST-WORKOUT FEEDBACK ---
+    borg_rating_after: Optional[int] = Field(default=None)
+    mood: Optional[str] = Field(default=None)
+    symptoms: Optional[str] = Field(default=None)
 
-    # Relationships
     remarks: List["Remark"] = Relationship(back_populates="record")
 
 class Remark(SQLModel, table=True):
