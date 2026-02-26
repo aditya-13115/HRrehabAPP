@@ -4,7 +4,7 @@ import pandas as pd
 
 # --- CONFIG ---
 API_URL = "http://127.0.0.1:8000/api/v1"
-st.set_page_config(page_title="JIJU RECAP Portal", page_icon="❤️", layout="wide")
+st.set_page_config(page_title="HR Rehab Portal", page_icon="❤️", layout="wide")
 
 if "user" not in st.session_state: st.session_state["user"] = None
 if "plan_data" not in st.session_state: st.session_state["plan_data"] = None
@@ -58,7 +58,7 @@ if not st.session_state["user"]:
     c1, c2 = st.columns([1,2])
     with c1: st.image("https://cdn-icons-png.flaticon.com/512/2966/2966327.png", width=120)
     with c2:
-        st.title("JIJU RECAP Portal")
+        st.title("HR Rehab Portal")
         auth_tab1, auth_tab2 = st.tabs(["🔑 Login", "📝 Register"])
         
         with auth_tab1:

@@ -6,3 +6,5 @@ scikit-learn
 xgboost
 joblib
 python-multipart
+streamlit 
+requests
