@@ -1,6 +1,8 @@
 import streamlit as st
 import requests
 import pandas as pd
+import plotly.express as px
+from streamlit_autorefresh import st_autorefresh
 
 # --- CONFIG ---
 API_URL = "http://127.0.0.1:8000/api/v1"
@@ -31,7 +33,6 @@ BORG_DESC = {
 # --- AUTH FUNCTIONS ---
 def login(username):
     user_data = None
-    # 1. Try to get data
     try:
         res = requests.get(f"{API_URL}/patient/login/{username}")
         if res.status_code == 200:
@@ -41,7 +42,6 @@ def login(username):
     except Exception as e:
         st.error(f"Server Connection Error: {e}")
 
-    # 2. If successful, save and rerun (OUTSIDE the try/except)
     if user_data:
         st.session_state["user"] = user_data
         st.rerun()
@@ -49,10 +49,11 @@ def login(username):
 def logout():
     st.session_state["user"] = None
     st.session_state["plan_data"] = None
+    st.session_state["final_plan"] = None
     st.rerun()
 
 # ==========================================
-# 🔐 SCREEN 1: LOGIN & REGISTER
+# SCREEN 1: LOGIN & REGISTER
 # ==========================================
 if not st.session_state["user"]:
     c1, c2 = st.columns([1,2])
@@ -64,7 +65,6 @@ if not st.session_state["user"]:
         with auth_tab1:
             with st.form("login_form"):
                 user_input = st.text_input("Username", key="login_u")
-                # Using a form submit button prevents "double click" issues
                 if st.form_submit_button("Login"):
                     if user_input:
                         login(user_input)
@@ -77,7 +77,7 @@ if not st.session_state["user"]:
             new_role = st.selectbox("Role", ["patient", "doctor"])
             
             c_a, c_b = st.columns(2)
-            reg_age = c_a.number_input("Age", 18, 100, 30)
+            reg_age = c_a.number_input("Age", min_value=18, max_value=100, value=30)
             reg_sex = c_b.selectbox("Gender", ["M", "F"])
             
             if st.button("Sign Up"):
@@ -90,22 +90,20 @@ if not st.session_state["user"]:
                 else: st.error("Registration failed.")
 
 # ==========================================
-# 🏥 SCREEN 2: MAIN APP
+# SCREEN 2: MAIN APP
 # ==========================================
 else:
     user = st.session_state["user"]
     
-    # --- SIDEBAR (Profile & Logout) ---
     with st.sidebar:
         st.header(f"👤 {user['full_name']}")
         st.caption(f"Role: {user['role'].upper()}")
         
-        # MOVED PROFILE HERE
         if user["role"] == "patient":
             st.divider()
             st.subheader("Edit Profile")
             with st.form("sidebar_profile"):
-                p_age = st.number_input("Age", 18, 100, user.get('age', 30))
+                p_age = st.number_input("Age", min_value=18, max_value=100, value=user.get('age', 30))
                 p_sex = st.selectbox("Gender", ["M", "F"], index=0 if user.get('gender')=='M' else 1)
                 
                 if st.form_submit_button("Update Profile"):
@@ -120,16 +118,14 @@ else:
         if st.button("Logout"): logout()
 
     # ----------------------------------------------------
-    # 🏃 PATIENT VIEW
+    # PATIENT VIEW
     # ----------------------------------------------------
     if user["role"] == "patient":
-        # REFRESH BUTTON HEADER
         col_t, col_r = st.columns([6,1])
         with col_t: st.title("My Health Dashboard")
         with col_r: 
             if st.button("🔄 Refresh"): st.rerun()
 
-        # --- GLOBAL STATS ---
         try:
             h_res = requests.get(f"{API_URL}/patient/history/{user['id']}")
             hist_df = pd.DataFrame()
@@ -149,26 +145,20 @@ else:
         except:
             st.error("Could not load stats.")
         
-        # --- TABS (Removed Profile from here) ---
-        tab_predict, tab_hist = st.tabs(["💪 New Session", "📊 History & Remarks"])
+        tab_predict, tab_hist, tab_monitor = st.tabs(["💪 New Session", "📊 History & Remarks", "📈 Continuous Monitoring"])
         
-        # --- TAB 1: PREDICTION (Live Borg) ---
         with tab_predict:
             st.subheader("Pre-Workout Vitals")
             
-            # NO FORM HERE -> Allows Live Slider Updates
             c1, c2, c3 = st.columns(3)
-            # Widened Ranges: Weight 20-300, HR 30-220
-            weight = c1.number_input("Weight (kg)", 20.0, 300.0, 75.0)
-            rhr = c2.number_input("Resting HR", 30, 200, 65)
-            pulse = c3.number_input("Pulse Rate (Current)", 30, 220, 70)
+            weight = c1.number_input("Weight (kg)", min_value=30.0, max_value=250.0, value=75.0)
+            rhr = c2.number_input("Resting HR", min_value=30, max_value=220, value=65)
+            pulse = c3.number_input("Pulse Rate (Current)", min_value=30, max_value=220, value=70)
 
             c4, c5, c6 = st.columns(3)
-            # Widened Ranges: BP 50-300 (Sys) / 30-180 (Dia)
-            sys = c4.number_input("Systolic BP", 50, 300, 120)
-            dia = c5.number_input("Diastolic BP", 30, 180, 80)
-            # Widened Range: Resp 5-60
-            resp = c6.number_input("Resp. Rate", 5, 60, 16)
+            sys = c4.number_input("Systolic BP", min_value=70, max_value=250, value=120)
+            dia = c5.number_input("Diastolic BP", min_value=40, max_value=150, value=80)
+            resp = c6.number_input("Resp. Rate", min_value=5, max_value=60, value=16)
 
             st.markdown("**Pre-existing Conditions:**")
             cc1, cc2 = st.columns(2)
@@ -178,11 +168,10 @@ else:
             st.divider()
             st.markdown("**How do you feel right now? (Borg Scale)**")
             
-            # Live Slider
-            borg_val = st.slider("Fatigue Level", 6, 20, 6)
+            borg_val = st.slider("Fatigue Level", min_value=6, max_value=20, value=6)
             st.info(f"**Level {borg_val}:** {BORG_DESC[borg_val]}")
             
-            if st.button("Generate Plan", type="primary"):
+            if st.button("Start Session", type="primary"):
                 payload = {
                     "weight": weight, "resting_hr": rhr, 
                     "bp_systolic": sys, "bp_diastolic": dia,
@@ -191,66 +180,160 @@ else:
                     "has_htn": has_htn, "has_dm": has_dm
                 }
                 res = requests.post(f"{API_URL}/patient/predict/{user['id']}", json=payload)
-                if res.status_code == 200: st.session_state["plan_data"] = res.json()
-                else: st.error(res.text)
+                if res.status_code == 200: 
+                    st.session_state["plan_data"] = res.json()
+                    st.session_state["final_plan"] = None
+                else: 
+                    st.error(res.text)
 
-            # SHOW PLAN & VIDEO (Outside Form)
             if st.session_state["plan_data"]:
                 data = st.session_state["plan_data"]
                 st.divider()
-                st.subheader("Your AI Prescription")
-                if data["is_urgent"]: st.error("⚠️ HIGH RISK DETECTED - Intensity Reduced")
-                else: st.success(f"✅ Target: {data['predicted_intensity']} Intensity")
                 
-                # RESTORED VIDEO HERE
-                st.video(data["youtube_link"])
+                if "final_plan" not in st.session_state:
+                    st.session_state["final_plan"] = None
                 
-                st.divider()
-                st.subheader("Post-Workout Check-in")
-                st.caption("Fill this AFTER you finish.")
-                
-                # --- UPDATED: Live Slider for Post-Workout ---
-                fb_borg = st.slider("Exertion Level (After Workout)", 6, 20, 13)
-                st.info(f"**Level {fb_borg}:** {BORG_DESC[fb_borg]}")
-                
-                fb_mood = st.select_slider("Mood", ["Happy", "Sad", "Tired", "Energetic"])
-                
-                if st.button("Save Log", type="primary"):
-                    requests.patch(f"{API_URL}/patient/feedback/{data['id']}", 
-                                 json={"borg_rating": fb_borg, "mood": fb_mood, "symptoms": []})
-                    st.success("Logged!")
-                    st.session_state["plan_data"] = None
-                    st.rerun()
+                if data["is_urgent"]:
+                    st.error("⚠️ CRITICAL EXERTION DETECTED: Vitals or Fatigue are dangerously high. Please do NOT exercise.")
+                    st.warning("Follow this guided meditation to lower your heart rate safely.")
+                    if data.get("youtube_links"):
+                        st.video(data["youtube_links"][0])
+                    if st.button("Close Session"):
+                        st.session_state["plan_data"] = None
+                        st.rerun()
 
-        # --- TAB 2: HISTORY ---
+                elif not st.session_state["final_plan"]:
+                    st.info("🏃‍♂️ **Warmup Phase:** Cleared! Please complete a **Moderate** intensity warmup using one of the routines below.")
+                    
+                    if len(data.get("youtube_links", [])) >= 2:
+                        vid_col1, vid_col2 = st.columns(2)
+                        with vid_col1: st.video(data["youtube_links"][0])
+                        with vid_col2: st.video(data["youtube_links"][1])
+                    
+                    st.divider()
+                    st.subheader("Post-Warmup Vitals (Required for AI Prediction)")
+                    
+                    c_a, c_b = st.columns(2)
+                    fb_pulse = c_a.number_input("HR Post (After Moderate Exercise)", min_value=30, max_value=220, value=110)
+                    fb_borg = c_b.slider("Exertion Level (After Warmup)", min_value=6, max_value=20, value=13)
+                    st.info(f"**Level {fb_borg}:** {BORG_DESC[fb_borg]}")
+                    
+                    fb_mood = st.select_slider("Mood", ["Happy", "Neutral", "Sad", "Tired", "Energetic"], value="Neutral")
+                    
+                    if st.button("Get AI Prescription for Next Exercises", type="primary"):
+                        payload = {"borg_rating": fb_borg, "pulse_rate_after": fb_pulse, "mood": fb_mood, "symptoms": []}
+                        res = requests.patch(f"{API_URL}/patient/feedback/{data['id']}", json=payload)
+                        if res.status_code == 200:
+                            st.session_state["final_plan"] = res.json()
+                            st.rerun()
+                        else:
+                            st.error("Failed to generate AI prescription.")
+                
+                else:
+                    final_data = st.session_state["final_plan"]
+                    
+                    if final_data.get("is_urgent"):
+                        st.error("⚠️ CRITICAL EXERTION DETECTED POST-WARMUP: Your heart rate or fatigue escalated too fast.")
+                        st.warning("Please stop exercising immediately and follow this meditation.")
+                        if final_data.get("youtube_links"):
+                            st.video(final_data["youtube_links"][0])
+                    else:
+                        st.success(f"✅ **AI Target for Next Exercises:** {final_data['predicted_intensity']} Intensity")
+                        st.markdown("Choose a routine below to continue:")
+                        
+                        links = final_data.get("youtube_links", [])
+                        if len(links) >= 3:
+                            v1, v2, v3 = st.columns(3)
+                            with v1: st.video(links[0])
+                            with v2: st.video(links[1])
+                            with v3: st.video(links[2])
+                    
+                    st.divider()
+                    if st.button("Finish & Save Session"):
+                        st.session_state["plan_data"] = None
+                        st.session_state["final_plan"] = None
+                        st.success("Session Completed!")
+                        st.rerun()
+
         with tab_hist:
             if not hist_df.empty:
                 if "doctor_note" not in hist_df.columns: hist_df["doctor_note"] = "No remarks"
+                if "mood" not in hist_df.columns: hist_df["mood"] = "Neutral"
                 
-                st.markdown("### Activity Log")
-                # Show Borg Before and After if available
-                display_cols = ["timestamp", "predicted_intensity", "borg_rating_before", "doctor_note"]
-                
-                # Rename for clarity
                 view_df = hist_df.copy()
+                view_df["timestamp"] = pd.to_datetime(view_df["timestamp"])
+                view_df = view_df.sort_values("timestamp")
+
                 view_df = view_df.rename(columns={
                     "borg_rating_before": "Fatigue (Pre)",
-                    "borg_rating": "Exertion (Post)"
+                    "borg_rating_after": "Exertion (Post)",
+                    "pulse_rate_before": "HR (Pre)",
+                    "pulse_rate_after": "HR (Post)",
+                    "bp_systolic": "Sys BP",
+                    "bp_diastolic": "Dia BP"
                 })
                 
-                cols_to_show = ["timestamp", "predicted_intensity", "Fatigue (Pre)", "doctor_note"]
-                if "Exertion (Post)" in view_df.columns: cols_to_show.append("Exertion (Post)")
+                st.subheader("📈 Vitals Trend Analysis")
+                c_g1, c_g2 = st.columns(2)
+                
+                hr_cols = ["HR (Pre)"]
+                if "HR (Post)" in view_df.columns: hr_cols.append("HR (Post)")
+                if set(hr_cols).issubset(view_df.columns):
+                    fig_hr = px.line(view_df, x="timestamp", y=hr_cols, labels={"value": "BPM", "variable": "Phase", "timestamp": "Date"}, title="Heart Rate Trend", markers=True)
+                    c_g1.plotly_chart(fig_hr, use_container_width=True)
+                
+                bp_cols = ["Sys BP", "Dia BP"]
+                if set(bp_cols).issubset(view_df.columns):
+                    fig_bp = px.line(view_df, x="timestamp", y=bp_cols, labels={"value": "mmHg", "variable": "Metric", "timestamp": "Date"}, title="Blood Pressure Trend", markers=True)
+                    c_g2.plotly_chart(fig_bp, use_container_width=True)
+
+                st.divider()
+                st.markdown("### Activity Log")
+                
+                view_df["timestamp"] = view_df["timestamp"].dt.strftime('%Y-%m-%d %I:%M %p')
+                
+                cols_to_show = ["timestamp", "predicted_intensity", "Fatigue (Pre)", "HR (Pre)", "Sys BP", "Dia BP", "mood", "doctor_note"]
+                if "Exertion (Post)" in view_df.columns: cols_to_show.insert(3, "Exertion (Post)")
+                if "HR (Post)" in view_df.columns: cols_to_show.insert(6, "HR (Post)")
                 
                 final_cols = [c for c in cols_to_show if c in view_df.columns]
-                st.dataframe(view_df[final_cols], use_container_width=True)
+                st.dataframe(view_df[final_cols].sort_index(ascending=False), use_container_width=True)
             else:
                 st.info("No records found.")
+                
+        with tab_monitor:
+            st.subheader("Live Vitals Tracking")
+            st_autorefresh(interval=300000, key="fitness_refresh")
+            
+            try:
+                fit_res = requests.get(f"{API_URL}/fitness/history/{user['id']}?limit=60")
+                if fit_res.status_code == 200:
+                    fit_data = fit_res.json()
+                    if fit_data:
+                        f_df = pd.DataFrame(fit_data)
+                        f_df['timestamp'] = pd.to_datetime(f_df['timestamp'])
+                        f_df = f_df.sort_values('timestamp')
+
+                        if 'heart_rate' in f_df.columns and not f_df['heart_rate'].dropna().empty:
+                            fig_hr = px.line(f_df, x="timestamp", y="heart_rate", title="Heart Rate History", markers=True)
+                            st.plotly_chart(fig_hr, use_container_width=True)
+                        else:
+                            st.info("No heart rate data available.")
+
+                        if 'steps' in f_df.columns and not f_df['steps'].dropna().empty:
+                            fig_steps = px.bar(f_df, x="timestamp", y="steps", title="Step Count Over Time")
+                            st.plotly_chart(fig_steps, use_container_width=True)
+                        else:
+                            st.info("No step data available.")
+                    else:
+                        st.info("No fitness records found. Ensure the mobile client is syncing.")
+            except Exception as e:
+                st.error(f"Could not load continuous monitoring data: {e}")
 
     # ----------------------------------------------------
-    # 👨‍⚕️ DOCTOR VIEW
+    # DOCTOR VIEW
     # ----------------------------------------------------
     elif user["role"] == "doctor":
-        # REFRESH BUTTON HEADER
         col_t, col_r = st.columns([6,1])
         with col_t: st.title("👨‍⚕️ Clinical Command Center")
         with col_r: 
@@ -264,24 +347,21 @@ else:
                     st.info("No records found.")
                 else:
                     df = pd.DataFrame(all_records)
-                    # Safe Defaults
-                    for c in ["symptoms", "calories_burned", "is_urgent", "patient_username", "borg_rating", "borg_rating_before"]:
+                    for c in ["symptoms", "calories_burned", "is_urgent", "patient_username", "borg_rating_after", "borg_rating_before", "mood", "pulse_rate_before", "pulse_rate_after", "bp_systolic", "bp_diastolic"]:
                         if c not in df.columns: df[c] = None
 
-                    # 1. ALERT FILTER (Strict Urgency Check)
-                    # Only show if is_urgent is TRUE. If Doctor overrode it (False), it disappears.
+                    df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.strftime('%Y-%m-%d %I:%M %p')
+                    
                     urgent_cases = df[df["is_urgent"] == True]
                     
                     if not urgent_cases.empty:
                         st.error(f"⚠️ {len(urgent_cases)} CRITICAL PATIENTS REQUIRE REVIEW")
-                        # --- UPDATED: Added 'id' to the view ---
                         st.dataframe(urgent_cases[["id", "patient_username", "timestamp", "symptoms", "bp_systolic"]])
                     else:
                         st.success("✅ No Critical Alerts Pending")
 
                     st.divider()
 
-                    # 2. PATIENT INSPECTOR
                     c1, c2 = st.columns([1, 3])
                     with c1:
                         st.markdown("### 👤 Select Patient")
@@ -291,11 +371,9 @@ else:
                     with c2:
                         st.markdown(f"### Patient: **{selected_user}** Overview")
                         p_df = df[df["patient_username"] == selected_user].copy()
-                        p_df["timestamp"] = pd.to_datetime(p_df["timestamp"])
                         p_df = p_df.sort_values("timestamp", ascending=False)
                         
-                        # Stats
-                        stk = len(p_df["timestamp"].dt.date.unique())
+                        stk = len(pd.to_datetime(p_df["timestamp"]).dt.date.unique())
                         cal = int(p_df["calories_burned"].sum())
                         
                         m1, m2 = st.columns(2)
@@ -304,24 +382,25 @@ else:
                         
                         st.subheader("Detailed History")
                         
-                        # Rename Borg Columns for Doctor
                         p_df = p_df.rename(columns={
                             "borg_rating_before": "Fatigue (Pre)",
-                            "borg_rating": "Exertion (Post)"
+                            "borg_rating_after": "Exertion (Post)",
+                            "pulse_rate_before": "HR (Pre)",
+                            "pulse_rate_after": "HR (Post)",
+                            "bp_systolic": "Sys BP",
+                            "bp_diastolic": "Dia BP"
                         })
 
                         def highlight_risk(row):
                             return ['background-color: #ffcccc']*len(row) if row.get("is_urgent") else ['']*len(row)
 
-                        # Added Exertion (Post) to view
-                        view_cols = ["id", "timestamp", "predicted_intensity", "Fatigue (Pre)", "Exertion (Post)", "mood", "symptoms"]
+                        view_cols = ["id", "timestamp", "predicted_intensity", "Fatigue (Pre)", "Exertion (Post)", "HR (Pre)", "HR (Post)", "Sys BP", "Dia BP", "mood", "symptoms"]
                         final_view = [c for c in view_cols if c in p_df.columns]
                         
                         st.dataframe(p_df[final_view].style.apply(highlight_risk, axis=1), use_container_width=True)
 
                         st.divider()
 
-                        # 3. ACTIONS
                         act1, act2 = st.tabs(["Add Remark", "Override Plan"])
                         with act1:
                             rec_id = st.selectbox("Record ID", p_df["id"].tolist(), key="rem_id")

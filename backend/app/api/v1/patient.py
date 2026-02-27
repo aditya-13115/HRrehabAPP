@@ -6,11 +6,10 @@ from app.schemas.health_schema import HealthInput, HealthResponse, WorkoutFeedba
 from app.services.ml_service import ml_service
 from app.models.health import HealthRecord
 from app.models.user import User
-from sqlalchemy.orm import selectinload # Need this for relationships
+from sqlalchemy.orm import selectinload 
 
 router = APIRouter()
 
-# UPDATE PROFILE (Age/Gender)
 @router.patch("/profile/{user_id}")
 def update_profile(user_id: int, data: UserUpdate, db: Session = Depends(get_session)):
     user = db.get(User, user_id)
@@ -21,34 +20,31 @@ def update_profile(user_id: int, data: UserUpdate, db: Session = Depends(get_ses
     db.commit()
     return {"status": "updated"}
 
-# PREDICT (Now fetches Age/Gender from Profile)
 @router.post("/predict/{user_id}", response_model=HealthResponse)
 def predict_health(user_id: int, data: HealthInput, db: Session = Depends(get_session)):
-    # 1. Get User Profile
     user = db.get(User, user_id)
     if not user or not user.age or not user.gender:
         raise HTTPException(400, "Please complete your profile (Age/Gender) first.")
 
-    # 2. Format Conditions String for ML
     cond_list = []
     if data.has_htn: cond_list.append("HTN")
     if data.has_dm: cond_list.append("DM")
     conditions_str = ", ".join(cond_list) if cond_list else "None"
 
-    # 3. ML Service
-    result = ml_service.predict_and_audit(
-        user.age, user.gender, data.weight, data.resting_hr, 
-        data.bp_systolic, data.bp_diastolic,
-        data.pulse_rate_before, data.respiratory_rate_before,
-        data.borg_rating_before, conditions_str
-    )
+    mhr = 220 - user.age
+    
+    is_urgent = False
+    predicted_intensity = "Warmup"
+    youtube_links = [
+        "https://www.youtube.com/watch?v=8VKntE2gUfc", 
+        "https://www.youtube.com/watch?v=j6_KqEkea3M"
+    ]
 
-    # 4. Calories Calculation
-    mets = {"Low": 3.5, "Moderate": 5.0, "High": 8.0}
-    intensity = "Low" if result["is_urgent"] else result["predicted_intensity"]
-    calories = mets.get(intensity, 3.5) * data.weight * 0.33
+    if data.resting_hr > 100 or data.bp_systolic > 160 or data.bp_diastolic > 100 or data.borg_rating_before >= 15:
+        is_urgent = True
+        predicted_intensity = "Rest"
+        youtube_links = ["https://www.youtube.com/watch?v=ZToicYcHIOU"]
 
-    # 5. Save Record
     record = HealthRecord(
         patient_id=user_id,
         weight=data.weight, resting_hr=data.resting_hr,
@@ -57,53 +53,79 @@ def predict_health(user_id: int, data: HealthInput, db: Session = Depends(get_se
         respiratory_rate_before=data.respiratory_rate_before,
         borg_rating_before=data.borg_rating_before,
         conditions=conditions_str,
-        predicted_intensity=result["predicted_intensity"],
-        mhr=result["mhr"],
-        target_hr_min=result["target_hr_min"],
-        target_hr_max=result["target_hr_max"],
-        is_urgent=result["is_urgent"],
-        calories_burned=round(calories, 1)
+        predicted_intensity=predicted_intensity, 
+        mhr=mhr,
+        target_hr_min=int(0.50 * mhr),
+        target_hr_max=int(0.70 * mhr),
+        is_urgent=is_urgent,
+        calories_burned=0.0 
     )
     db.add(record)
     db.commit()
     db.refresh(record)
     
     resp = HealthResponse(**record.dict())
-    resp.youtube_link = result["youtube_link"]
+    resp.youtube_links = youtube_links 
     return resp
 
-# 2. SUBMIT FEEDBACK (Mood/Borg)
 @router.patch("/feedback/{record_id}")
 def submit_feedback(record_id: int, feedback: WorkoutFeedback, db: Session = Depends(get_session)):
     record = db.get(HealthRecord, record_id)
     if not record: raise HTTPException(404, "Record not found")
     
-    record.borg_rating = feedback.borg_rating
+    user = db.get(User, record.patient_id)
+    
+    record.borg_rating_after = feedback.borg_rating
+    record.pulse_rate_after = feedback.pulse_rate_after
     record.mood = feedback.mood
-    # Convert list to string
+    
     symptoms_str = ",".join(feedback.symptoms) if feedback.symptoms else "None"
     record.symptoms = symptoms_str
     
-    # CRITICAL FIX: Flag urgency if dangerous symptoms are reported
-    if "Chest Pain" in symptoms_str or "Dizziness" in symptoms_str:
+    if "Chest Pain" in symptoms_str or "Dizziness" in symptoms_str or feedback.borg_rating >= 15:
         record.is_urgent = True
+        record.predicted_intensity = "Rest"
+        youtube_links = ["https://www.youtube.com/watch?v=ZToicYcHIOU"]
+        
+    else:
+        borg_change = feedback.borg_rating - record.borg_rating_before
+        hr_percent_mhr = feedback.pulse_rate_after / float(220 - user.age)
+        pulse_change = feedback.pulse_rate_after - record.pulse_rate_before
+        
+        ml_result = ml_service.evaluate_post_workout(
+            borg_after=feedback.borg_rating,
+            borg_change=borg_change,
+            hr_percent_mhr=hr_percent_mhr,
+            pulse_change=pulse_change,
+            borg_before=record.borg_rating_before,
+            age=user.age,
+            resp_before=record.respiratory_rate_before
+        )
+        record.predicted_intensity = ml_result["predicted_intensity"]
+        youtube_links = ml_result["youtube_links"]
     
+    mets = {"Low": 3.5, "Moderate": 5.0, "High": 8.0, "Warmup": 3.0, "Rest": 1.0}
+    calories = mets.get(record.predicted_intensity, 3.5) * record.weight * 0.33
+    record.calories_burned = round(calories, 1)
+
     db.add(record)
     db.commit()
-    return {"status": "saved"}
+    
+    return {
+        "status": "saved", 
+        "predicted_intensity": record.predicted_intensity,
+        "is_urgent": record.is_urgent,
+        "youtube_links": youtube_links
+    }
 
-# 3. HISTORY & LOGIN
 @router.get("/history/{user_id}")
 def get_history(user_id: int, db: Session = Depends(get_session)):
-    # Use selectinload to fetch the remarks relationship efficiently
     statement = select(HealthRecord).where(HealthRecord.patient_id == user_id).options(selectinload(HealthRecord.remarks)).order_by(HealthRecord.timestamp.desc())
     results = db.exec(statement).all()
     
-    # Format the response to include remark text
     history_data = []
     for record in results:
         rec_dict = record.dict()
-        # Join all remarks into a single string
         if record.remarks:
             rec_dict["doctor_note"] = "; ".join([r.text for r in record.remarks])
         else:
@@ -111,6 +133,7 @@ def get_history(user_id: int, db: Session = Depends(get_session)):
         history_data.append(rec_dict)
         
     return history_data
+
 @router.get("/login/{username}")
 def login(username: str, db: Session = Depends(get_session)):
     user = db.exec(select(User).where(User.username == username)).first()

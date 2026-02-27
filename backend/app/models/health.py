@@ -5,21 +5,19 @@ from datetime import datetime, timezone
 class HealthRecord(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     patient_id: int = Field(foreign_key="user.id")
-    # Use timezone-aware UTC for accurate history
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     
     # --- Vitals Inputs ---
-    # --- DYNAMIC INPUTS (Session-based) ---
     weight: float
     resting_hr: int
     bp_systolic: int
     bp_diastolic: int
     
-    # --- NEW ML FEATURES ---
+    # --- PRE-WORKOUT FEATURES ---
     pulse_rate_before: int
     respiratory_rate_before: int
     borg_rating_before: int
-    conditions: str # Stores "HTN", "DM", "HTN, DM" or "None"    
+    conditions: str 
     
     # --- AI OUTPUTS ---
     predicted_intensity: str 
@@ -30,6 +28,7 @@ class HealthRecord(SQLModel, table=True):
     calories_burned: float = Field(default=0.0)
 
     # --- POST-WORKOUT FEEDBACK ---
+    pulse_rate_after: Optional[int] = Field(default=None)
     borg_rating_after: Optional[int] = Field(default=None)
     mood: Optional[str] = Field(default=None)
     symptoms: Optional[str] = Field(default=None)
