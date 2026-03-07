@@ -1,0 +1,98 @@
+Folder PATH listing for volume Data
+Volume serial number is 50D6-3282
+D:.
+|   .gitignore
+|   filestruct.txt
+|   requirments.txt
+|   streamlit_app.py
+|   
++---backend
+|   |   database.db
+|   |   
+|   \---app
+|       |   .env
+|       |   main.py
+|       |   __init__.py
+|       |   
+|       +---api
+|       |   |   __init__.py
+|       |   |   
+|       |   +---v1
+|       |   |   |   auth.py
+|       |   |   |   doctor.py
+|       |   |   |   fitness.py
+|       |   |   |   patient.py
+|       |   |   |   __init__.py
+|       |   |   |   
+|       |   |   \---__pycache__
+|       |   |           auth.cpython-312.pyc
+|       |   |           doctor.cpython-312.pyc
+|       |   |           fitness.cpython-312.pyc
+|       |   |           patient.cpython-312.pyc
+|       |   |           __init__.cpython-312.pyc
+|       |   |           
+|       |   \---__pycache__
+|       |           __init__.cpython-312.pyc
+|       |           
+|       +---core
+|       |   |   config.py
+|       |   |   __init__.py
+|       |   |   
+|       |   \---__pycache__
+|       |           config.cpython-312.pyc
+|       |           __init__.cpython-312.pyc
+|       |           
+|       +---db
+|       |   |   session.py
+|       |   |   __init__.py
+|       |   |   
+|       |   \---__pycache__
+|       |           session.cpython-312.pyc
+|       |           session.cpython-313.pyc
+|       |           __init__.cpython-312.pyc
+|       |           __init__.cpython-313.pyc
+|       |           
+|       +---ml_models
+|       |       best_model.pkl
+|       |       label_encoder.pkl
+|       |       xgb_pipeline.pkl
+|       |       
+|       +---models
+|       |   |   fitness.py
+|       |   |   health.py
+|       |   |   user.py
+|       |   |   __init__.py
+|       |   |   
+|       |   \---__pycache__
+|       |           fitness.cpython-312.pyc
+|       |           health.cpython-312.pyc
+|       |           user.cpython-312.pyc
+|       |           __init__.cpython-312.pyc
+|       |           
+|       +---schemas
+|       |   |   fitness_schema.py
+|       |   |   health_schema.py
+|       |   |   __init__.py
+|       |   |   
+|       |   \---__pycache__
+|       |           fitness_schema.cpython-312.pyc
+|       |           health_schema.cpython-312.pyc
+|       |           __init__.cpython-312.pyc
+|       |           
+|       +---services
+|       |   |   ml_service.py
+|       |   |   __init__.py
+|       |   |   
+|       |   \---__pycache__
+|       |           ml_service.cpython-312.pyc
+|       |           __init__.cpython-312.pyc
+|       |           
+|       \---__pycache__
+|               main.cpython-312.pyc
+|               main.cpython-313.pyc
+|               __init__.cpython-312.pyc
+|               __init__.cpython-313.pyc
+|               
+\---__pycache__
+        streamlit_app.cpython-312.pyc
+        

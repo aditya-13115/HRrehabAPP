@@ -103,7 +103,7 @@ else:
             st.divider()
             st.subheader("Edit Profile")
             with st.form("sidebar_profile"):
-                p_age = st.number_input("Age", min_value=18, max_value=100, value=user.get('age', 30))
+                p_age = st.number_input("Age", min_value=18, max_value=100, value=user.get('age') or 30)
                 p_sex = st.selectbox("Gender", ["M", "F"], index=0 if user.get('gender')=='M' else 1)
                 
                 if st.form_submit_button("Update Profile"):

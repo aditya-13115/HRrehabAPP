@@ -82,7 +82,12 @@ def submit_feedback(record_id: int, feedback: WorkoutFeedback, db: Session = Dep
     symptoms_str = ",".join(feedback.symptoms) if feedback.symptoms else "None"
     record.symptoms = symptoms_str
     
-    if "Chest Pain" in symptoms_str or "Dizziness" in symptoms_str or feedback.borg_rating >= 15:
+    mets = {"Low": 3.5, "Moderate": 5.0, "High": 8.0, "Warmup": 3.0, "Rest": 1.0}
+    current_intensity = record.predicted_intensity
+    calories = mets.get(current_intensity, 3.5) * record.weight * 0.33
+    record.calories_burned = round(calories, 1)
+    
+    if "Chest Pain" in symptoms_str or "Dizziness" in symptoms_str or feedback.borg_rating >= 17:
         record.is_urgent = True
         record.predicted_intensity = "Rest"
         youtube_links = ["https://www.youtube.com/watch?v=ZToicYcHIOU"]
@@ -103,10 +108,6 @@ def submit_feedback(record_id: int, feedback: WorkoutFeedback, db: Session = Dep
         )
         record.predicted_intensity = ml_result["predicted_intensity"]
         youtube_links = ml_result["youtube_links"]
-    
-    mets = {"Low": 3.5, "Moderate": 5.0, "High": 8.0, "Warmup": 3.0, "Rest": 1.0}
-    calories = mets.get(record.predicted_intensity, 3.5) * record.weight * 0.33
-    record.calories_burned = round(calories, 1)
 
     db.add(record)
     db.commit()
