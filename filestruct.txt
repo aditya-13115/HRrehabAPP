@@ -3,7 +3,7 @@ Volume serial number is 50D6-3282
 D:.
 |   .gitignore
 |   filestruct.txt
-|   requirments.txt
+|   requirements.txt
 |   streamlit_app.py
 |   
 +---backend
