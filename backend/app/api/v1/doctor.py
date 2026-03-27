@@ -1,39 +1,41 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-from typing import List
 from app.db.session import get_session
 from app.models.health import HealthRecord, Remark
-from app.models.user import User # Import User model
+from app.models.user import User, UserRole
+from app.api.v1.auth import get_current_user
 
 router = APIRouter()
 
+def require_doctor(current_user: User = Depends(get_current_user)):
+    if current_user.role != UserRole.DOCTOR:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    return current_user
+
 @router.get("/dashboard")
-def get_dashboard(db: Session = Depends(get_session)):
-    # JOIN HealthRecord with User to get the username
+def get_dashboard(db: Session = Depends(get_session), current_user: User = Depends(require_doctor)):
     statement = select(HealthRecord, User.username).join(User, HealthRecord.patient_id == User.id).order_by(HealthRecord.timestamp.desc())
     results = db.exec(statement).all()
     
-    # Flatten the result into a clean list of dictionaries
     clean_data = []
     for record, username in results:
         rec_dict = record.dict()
-        rec_dict["patient_username"] = username # <--- ADD USERNAME HERE
+        rec_dict["patient_username"] = username 
         clean_data.append(rec_dict)
         
     return clean_data
 
-# ... (Keep existing override/remark endpoints same as before) ...
 @router.post("/remark/{record_id}")
-def add_remark(record_id: int, text: str, user_id: int, db: Session = Depends(get_session)):
+def add_remark(record_id: int, text: str, user_id: int, db: Session = Depends(get_session), current_user: User = Depends(require_doctor)):
     record = db.get(HealthRecord, record_id)
     if not record: raise HTTPException(404, "Record not found")
-    new_remark = Remark(record_id=record_id, doctor_id=user_id, text=text)
+    new_remark = Remark(record_id=record_id, doctor_id=current_user.id, text=text)
     db.add(new_remark)
     db.commit()
     return {"status": "saved"}
 
 @router.patch("/override/{record_id}")
-def override_intensity(record_id: int, new_intensity: str, db: Session = Depends(get_session)):
+def override_intensity(record_id: int, new_intensity: str, db: Session = Depends(get_session), current_user: User = Depends(require_doctor)):
     record = db.get(HealthRecord, record_id)
     if not record: raise HTTPException(404, "Record not found")
     

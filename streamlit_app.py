@@ -9,7 +9,11 @@ API_URL = "http://127.0.0.1:8000/api/v1"
 st.set_page_config(page_title="HR Rehab Portal", page_icon="❤️", layout="wide")
 
 if "user" not in st.session_state: st.session_state["user"] = None
+if "token" not in st.session_state: st.session_state["token"] = None
 if "plan_data" not in st.session_state: st.session_state["plan_data"] = None
+
+def get_auth_header():
+    return {"Authorization": f"Bearer {st.session_state.get('token', '')}"}
 
 # --- BORG SCALE DESCRIPTIONS ---
 BORG_DESC = {
@@ -31,23 +35,22 @@ BORG_DESC = {
 }
 
 # --- AUTH FUNCTIONS ---
-def login(username):
-    user_data = None
+def login(username, password):
     try:
-        res = requests.get(f"{API_URL}/patient/login/{username}")
+        res = requests.post(f"{API_URL}/auth/token", data={"username": username, "password": password})
         if res.status_code == 200:
-            user_data = res.json()
+            data = res.json()
+            st.session_state["token"] = data["access_token"]
+            st.session_state["user"] = data["user"]
+            st.rerun()
         else:
-            st.error("User not found.")
+            st.error("Invalid username or password.")
     except Exception as e:
         st.error(f"Server Connection Error: {e}")
 
-    if user_data:
-        st.session_state["user"] = user_data
-        st.rerun()
-
 def logout():
     st.session_state["user"] = None
+    st.session_state["token"] = None
     st.session_state["plan_data"] = None
     st.session_state["final_plan"] = None
     st.rerun()
@@ -65,35 +68,33 @@ if not st.session_state["user"]:
         with auth_tab1:
             with st.form("login_form"):
                 user_input = st.text_input("Username", key="login_u")
+                pass_input = st.text_input("Password", type="password", key="login_p")
                 if st.form_submit_button("Login"):
-                    if user_input:
-                        login(user_input)
+                    if user_input and pass_input:
+                        login(user_input, pass_input)
                     else:
-                        st.warning("Please enter a username.")
+                        st.warning("Please enter credentials.")
 
         with auth_tab2:
             new_u = st.text_input("Username", key="reg_u")
+            new_p = st.text_input("Password", type="password", key="reg_p")
             new_n = st.text_input("Full Name", key="reg_n")
             new_role = st.selectbox("Role", ["patient", "doctor"])
             
-            c_a, c_b = st.columns(2)
-            reg_age = c_a.number_input("Age", min_value=18, max_value=100, value=30)
-            reg_sex = c_b.selectbox("Gender", ["M", "F"])
-            
             if st.button("Sign Up"):
-                payload = {"username": new_u, "full_name": new_n, "role": new_role}
+                payload = {"username": new_u, "password": new_p, "full_name": new_n, "role": new_role}
                 res = requests.post(f"{API_URL}/auth/register", json=payload)
                 if res.status_code == 200:
-                    user_id = res.json()["user_id"]
-                    requests.patch(f"{API_URL}/patient/profile/{user_id}", json={"age": reg_age, "gender": reg_sex})
                     st.success("Account created! Please Login.")
-                else: st.error("Registration failed.")
+                else: 
+                    st.error(res.json().get("detail", "Registration failed."))
 
 # ==========================================
 # SCREEN 2: MAIN APP
 # ==========================================
 else:
     user = st.session_state["user"]
+    headers = get_auth_header()
     
     with st.sidebar:
         st.header(f"👤 {user['full_name']}")
@@ -107,7 +108,7 @@ else:
                 p_sex = st.selectbox("Gender", ["M", "F"], index=0 if user.get('gender')=='M' else 1)
                 
                 if st.form_submit_button("Update Profile"):
-                    res = requests.patch(f"{API_URL}/patient/profile/{user['id']}", json={"age": p_age, "gender": p_sex})
+                    res = requests.patch(f"{API_URL}/patient/profile/{user['id']}", json={"age": p_age, "gender": p_sex}, headers=headers)
                     if res.status_code == 200:
                         st.session_state["user"]["age"] = p_age
                         st.session_state["user"]["gender"] = p_sex
@@ -127,7 +128,7 @@ else:
             if st.button("🔄 Refresh"): st.rerun()
 
         try:
-            h_res = requests.get(f"{API_URL}/patient/history/{user['id']}")
+            h_res = requests.get(f"{API_URL}/patient/history/{user['id']}", headers=headers)
             hist_df = pd.DataFrame()
             if h_res.status_code == 200:
                 h_data = h_res.json()
@@ -179,12 +180,12 @@ else:
                     "borg_rating_before": borg_val,
                     "has_htn": has_htn, "has_dm": has_dm
                 }
-                res = requests.post(f"{API_URL}/patient/predict/{user['id']}", json=payload)
+                res = requests.post(f"{API_URL}/patient/predict/{user['id']}", json=payload, headers=headers)
                 if res.status_code == 200: 
                     st.session_state["plan_data"] = res.json()
                     st.session_state["final_plan"] = None
                 else: 
-                    st.error(res.text)
+                    st.error(res.json().get("detail", "Error starting session"))
 
             if st.session_state["plan_data"]:
                 data = st.session_state["plan_data"]
@@ -222,7 +223,7 @@ else:
                     
                     if st.button("Get AI Prescription for Next Exercises", type="primary"):
                         payload = {"borg_rating": fb_borg, "pulse_rate_after": fb_pulse, "mood": fb_mood, "symptoms": []}
-                        res = requests.patch(f"{API_URL}/patient/feedback/{data['id']}", json=payload)
+                        res = requests.patch(f"{API_URL}/patient/feedback/{data['id']}", json=payload, headers=headers)
                         if res.status_code == 200:
                             st.session_state["final_plan"] = res.json()
                             st.rerun()
@@ -279,11 +280,19 @@ else:
                 hr_cols = ["HR (Pre)"]
                 if "HR (Post)" in view_df.columns: hr_cols.append("HR (Post)")
                 if set(hr_cols).issubset(view_df.columns):
+                    # Force numeric casting to prevent Plotly mixed-type errors
+                    for col in hr_cols:
+                        view_df[col] = pd.to_numeric(view_df[col], errors='coerce')
+                    
                     fig_hr = px.line(view_df, x="timestamp", y=hr_cols, labels={"value": "BPM", "variable": "Phase", "timestamp": "Date"}, title="Heart Rate Trend", markers=True)
                     c_g1.plotly_chart(fig_hr, use_container_width=True)
                 
                 bp_cols = ["Sys BP", "Dia BP"]
                 if set(bp_cols).issubset(view_df.columns):
+                    # Force numeric casting to prevent Plotly mixed-type errors
+                    for col in bp_cols:
+                        view_df[col] = pd.to_numeric(view_df[col], errors='coerce')
+
                     fig_bp = px.line(view_df, x="timestamp", y=bp_cols, labels={"value": "mmHg", "variable": "Metric", "timestamp": "Date"}, title="Blood Pressure Trend", markers=True)
                     c_g2.plotly_chart(fig_bp, use_container_width=True)
 
@@ -306,7 +315,7 @@ else:
             st_autorefresh(interval=300000, key="fitness_refresh")
             
             try:
-                fit_res = requests.get(f"{API_URL}/fitness/history/{user['id']}?limit=60")
+                fit_res = requests.get(f"{API_URL}/fitness/history/{user['id']}?limit=60", headers=headers)
                 if fit_res.status_code == 200:
                     fit_data = fit_res.json()
                     if fit_data:
@@ -340,7 +349,7 @@ else:
             if st.button("🔄 Refresh", key="doc_refresh"): st.rerun()
         
         try:
-            res = requests.get(f"{API_URL}/doctor/dashboard")
+            res = requests.get(f"{API_URL}/doctor/dashboard", headers=headers)
             if res.status_code == 200:
                 all_records = res.json()
                 if not all_records:
@@ -406,14 +415,14 @@ else:
                             rec_id = st.selectbox("Record ID", p_df["id"].tolist(), key="rem_id")
                             note = st.text_area("Doctor's Note")
                             if st.button("Save Note"):
-                                requests.post(f"{API_URL}/doctor/remark/{rec_id}", params={"text": note, "user_id": user["id"]})
+                                requests.post(f"{API_URL}/doctor/remark/{rec_id}", params={"text": note, "user_id": user["id"]}, headers=headers)
                                 st.success("Saved!")
                         
                         with act2:
                             ov_id = st.selectbox("Record ID to Edit", p_df["id"].tolist(), key="ov_id")
                             new_i = st.selectbox("New Intensity", ["Low", "Moderate", "High"])
                             if st.button("Update"):
-                                requests.patch(f"{API_URL}/doctor/override/{ov_id}", params={"new_intensity": new_i})
+                                requests.patch(f"{API_URL}/doctor/override/{ov_id}", params={"new_intensity": new_i}, headers=headers)
                                 st.success("Updated!")
                                 st.rerun()
 

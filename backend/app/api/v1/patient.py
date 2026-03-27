@@ -6,12 +6,18 @@ from app.schemas.health_schema import HealthInput, HealthResponse, WorkoutFeedba
 from app.services.ml_service import ml_service
 from app.models.health import HealthRecord
 from app.models.user import User
+from app.api.v1.auth import get_current_user
 from sqlalchemy.orm import selectinload 
 
 router = APIRouter()
 
+def verify_patient_access(user_id: int, current_user: User):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this resource")
+
 @router.patch("/profile/{user_id}")
-def update_profile(user_id: int, data: UserUpdate, db: Session = Depends(get_session)):
+def update_profile(user_id: int, data: UserUpdate, db: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_patient_access(user_id, current_user)
     user = db.get(User, user_id)
     if not user: raise HTTPException(404, "User not found")
     user.age = data.age
@@ -21,7 +27,8 @@ def update_profile(user_id: int, data: UserUpdate, db: Session = Depends(get_ses
     return {"status": "updated"}
 
 @router.post("/predict/{user_id}", response_model=HealthResponse)
-def predict_health(user_id: int, data: HealthInput, db: Session = Depends(get_session)):
+def predict_health(user_id: int, data: HealthInput, db: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_patient_access(user_id, current_user)
     user = db.get(User, user_id)
     if not user or not user.age or not user.gender:
         raise HTTPException(400, "Please complete your profile (Age/Gender) first.")
@@ -69,9 +76,10 @@ def predict_health(user_id: int, data: HealthInput, db: Session = Depends(get_se
     return resp
 
 @router.patch("/feedback/{record_id}")
-def submit_feedback(record_id: int, feedback: WorkoutFeedback, db: Session = Depends(get_session)):
+def submit_feedback(record_id: int, feedback: WorkoutFeedback, db: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
     record = db.get(HealthRecord, record_id)
     if not record: raise HTTPException(404, "Record not found")
+    verify_patient_access(record.patient_id, current_user)
     
     user = db.get(User, record.patient_id)
     
@@ -91,7 +99,6 @@ def submit_feedback(record_id: int, feedback: WorkoutFeedback, db: Session = Dep
         record.is_urgent = True
         record.predicted_intensity = "Rest"
         youtube_links = ["https://www.youtube.com/watch?v=ZToicYcHIOU"]
-        
     else:
         borg_change = feedback.borg_rating - record.borg_rating_before
         hr_percent_mhr = feedback.pulse_rate_after / float(220 - user.age)
@@ -120,7 +127,8 @@ def submit_feedback(record_id: int, feedback: WorkoutFeedback, db: Session = Dep
     }
 
 @router.get("/history/{user_id}")
-def get_history(user_id: int, db: Session = Depends(get_session)):
+def get_history(user_id: int, db: Session = Depends(get_session), current_user: User = Depends(get_current_user)):
+    verify_patient_access(user_id, current_user)
     statement = select(HealthRecord).where(HealthRecord.patient_id == user_id).options(selectinload(HealthRecord.remarks)).order_by(HealthRecord.timestamp.desc())
     results = db.exec(statement).all()
     
@@ -134,9 +142,3 @@ def get_history(user_id: int, db: Session = Depends(get_session)):
         history_data.append(rec_dict)
         
     return history_data
-
-@router.get("/login/{username}")
-def login(username: str, db: Session = Depends(get_session)):
-    user = db.exec(select(User).where(User.username == username)).first()
-    if not user: raise HTTPException(404, "User not found")
-    return user

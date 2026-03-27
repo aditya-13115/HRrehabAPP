@@ -9,9 +9,9 @@ class UserRole(str, Enum):
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     username: str = Field(index=True, unique=True)
+    hashed_password: str 
     full_name: Optional[str] = None
     role: UserRole
     
-    # NEW: Profile Fields
     age: Optional[int] = Field(default=None)
-    gender: Optional[str] = Field(default=None) # "M" or "F"  
+    gender: Optional[str] = Field(default=None)
