@@ -3,6 +3,7 @@ Volume serial number is 50D6-3282
 D:.
 |   .gitignore
 |   filestruct.txt
+|   README.md
 |   requirements.txt
 |   streamlit_app.py
 |   
@@ -36,10 +37,12 @@ D:.
 |       |           
 |       +---core
 |       |   |   config.py
+|       |   |   security.py
 |       |   |   __init__.py
 |       |   |   
 |       |   \---__pycache__
 |       |           config.cpython-312.pyc
+|       |           security.cpython-312.pyc
 |       |           __init__.cpython-312.pyc
 |       |           
 |       +---db
